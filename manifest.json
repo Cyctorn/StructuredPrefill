@@ -1,10 +1,10 @@
 {
     "display_name": "StructuredPrefill",
     "loading_order": 100,
-    "js": "index.js",
-    "css": "styles.css",
+    "js": "index.js?v=1.0.1",
+    "css": "styles.css?v=1.0.1",
     "author": "StructuredPrefill Contributors",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "minimum_client_version": "1.19.0",
     "homePage": "https://rentry.org/structuredprefill",
     "description": "Prefill-like behavior using native Structured Outputs (json_schema / output_config) instead of assistant-role prefills.",
