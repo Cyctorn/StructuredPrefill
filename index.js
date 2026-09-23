@@ -3227,6 +3227,7 @@ async function onChatCompletionSettingsReady(generateData) {
     }
 
     const minCharsSetting = clampInt(settings.min_chars_after_prefix, 1, 10000, 80);
+    const minCharsAfterPrefix = isContinue ? 1 : (mustEndAfterTemplate ? 0 : minCharsSetting);
     generateData.json_schema = buildJsonSchemaForPrefillValuePattern(schemaPrefix, minCharsAfterPrefix, joinSuffixRegex, { mustEndAfterTemplate });
 
     // For Claude (direct or routed), also attach native output_config format
