@@ -1,5 +1,5 @@
-import { chat, getRequestHeaders, messageFormatting, saveSettingsDebounced, scrollChatToBottom, updateMessageBlock } from '../../../../script.js';
-import { extension_settings } from '../../../extensions.js';
+import { chat as importedChat, getRequestHeaders as importedGetRequestHeaders, messageFormatting as importedMessageFormatting, saveSettingsDebounced as importedSaveSettingsDebounced, scrollChatToBottom as importedScrollChatToBottom, updateMessageBlock as importedUpdateMessageBlock } from '../../../../script.js';
+import { extension_settings as importedExtensionSettings } from '../../../extensions.js';
 import { ARGUMENT_TYPE, SlashCommandArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { enumIcons } from '../../../slash-commands/SlashCommandCommonEnumsProvider.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
@@ -8,7 +8,56 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { getRegexedString, regex_placement } from '../../regex/engine.js';
 import { download, getFileText } from '../../../utils.js';
 
-const { eventSource, event_types, renderExtensionTemplateAsync, callPopup } = SillyTavern.getContext();
+// Retrieve SillyTavern context (standard practice for modern SillyTavern extensions)
+const getStContext = () => (typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : {});
+
+const chat = new Proxy([], {
+    get(target, prop, receiver) {
+        const live = getStContext().chat ?? importedChat ?? target;
+        const val = Reflect.get(live, prop, receiver);
+        return typeof val === 'function' ? val.bind(live) : val;
+    },
+    set(target, prop, value, receiver) {
+        const live = getStContext().chat ?? importedChat ?? target;
+        return Reflect.set(live, prop, value, receiver);
+    },
+});
+
+const extension_settings = new Proxy({}, {
+    get(target, prop, receiver) {
+        const ctx = getStContext();
+        const live = ctx?.extensionSettings ?? ctx?.extension_settings ?? importedExtensionSettings ?? target;
+        return Reflect.get(live, prop, receiver);
+    },
+    set(target, prop, value, receiver) {
+        const ctx = getStContext();
+        const live = ctx?.extensionSettings ?? ctx?.extension_settings ?? importedExtensionSettings ?? target;
+        return Reflect.set(live, prop, value, receiver);
+    },
+});
+
+const saveSettingsDebounced = (...args) => (getStContext().saveSettingsDebounced ?? importedSaveSettingsDebounced)(...args);
+const updateMessageBlock = (...args) => (getStContext().updateMessageBlock ?? importedUpdateMessageBlock)(...args);
+const scrollChatToBottom = (...args) => (getStContext().scrollChatToBottom ?? importedScrollChatToBottom)(...args);
+const getRequestHeaders = (...args) => (getStContext().getRequestHeaders ?? importedGetRequestHeaders)(...args);
+const messageFormatting = (...args) => (getStContext().messageFormatting ?? importedMessageFormatting)(...args);
+const renderExtensionTemplateAsync = (...args) => (getStContext().renderExtensionTemplateAsync ? getStContext().renderExtensionTemplateAsync(...args) : Promise.resolve(''));
+const callPopup = (...args) => (getStContext().callPopup ?? (typeof SillyTavern !== 'undefined' && SillyTavern.callPopup ? SillyTavern.callPopup : null))(...args);
+
+const eventSource = new Proxy({}, {
+    get(target, prop, receiver) {
+        const live = getStContext().eventSource ?? target;
+        const val = Reflect.get(live, prop, receiver);
+        return typeof val === 'function' ? val.bind(live) : val;
+    },
+});
+
+const event_types = new Proxy({}, {
+    get(target, prop, receiver) {
+        const live = getStContext().event_types ?? target;
+        return Reflect.get(live, prop, receiver);
+    },
+});
 
 const extensionName = 'StructuredPrefill';
 const extensionPath = 'third-party/StructuredPrefill';
@@ -803,14 +852,12 @@ async function runPrefillGeneratorOrEmpty({
 }
 
 function supportsStructuredPrefillForSource(chatCompletionSource) {
-    // IMPORTANT: We only activate on sources that (in SillyTavern server) apply `json_schema`
-    // as a real structured output mechanism (OpenAI-style `response_format: json_schema` or
-    // an equivalent JSON-schema response feature). Some sources translate `json_schema` to
-    // JSON-mode / prompt hacks or forced tooling, which would break this extension’s contract.
+    // IMPORTANT: We activate on sources that apply structured output (OpenAI-style
+    // `response_format: json_schema`, native Anthropic `output_config`, or equivalent).
+    // Some sources translate `json_schema` to JSON-mode / prompt hacks on the server,
+    // which would break this extension’s contract.
     const src = String(chatCompletionSource ?? '').toLowerCase();
     const incompatible = new Set([
-        // Tool-based or non-OpenAI response format.
-        'claude',
         // These providers map `json_schema` to JSON mode / prompt hacks on the server.
         'ai21',
         'deepseek',
@@ -1673,6 +1720,19 @@ function sanitizeUserRegex(raw) {
     return s.trim();
 }
 
+function isRegexSafeForAnthropic(regexStr) {
+    if (typeof regexStr !== 'string' || !regexStr) return false;
+    // Lookaheads and lookbehinds: (?=, (?!, (?<=, (?<!
+    if (/\(\?[=!<]/.test(regexStr)) return false;
+    // Word boundaries (\b, \B) and backreferences (\1-\9)
+    if (/\\[bB1-9]/.test(regexStr)) return false;
+    // Shorthand non-whitespace class \S
+    if (/\\S/.test(regexStr)) return false;
+    // Complex or large range quantifiers
+    if (/\{[0-9]+,\}/.test(regexStr) || /\{[0-9]{3,}/.test(regexStr)) return false;
+    return true;
+}
+
 function parseOptionsList(raw) {
     const parts = String(raw ?? '')
         .split(/[|,]/g)
@@ -1710,7 +1770,7 @@ function getPatternModeForRequest(source, modelId) {
     const model = String(modelId ?? '').toLowerCase();
 
     // Direct Anthropic/Claude provider implementations tend to have stricter schema-regex support than OpenAI.
-    // Use the conservative pattern set to avoid rejected patterns like `\\S` and some `{n,m}` quantifiers.
+    // Use the conservative pattern set to avoid rejected patterns like `\S` and some `{n,m}` quantifiers.
     if (src === 'claude' || src === 'anthropic') {
         return 'anthropic';
     }
@@ -1724,7 +1784,7 @@ function getPatternModeForRequest(source, modelId) {
 
     // OpenAI-compatible providers (proxies, etc.) routing to Anthropic/Claude models have the same
     // strict regex limitations. Detect by model name.
-    if (model.includes('claude') || model.includes('anthropic')) {
+    if (model.includes('claude') || model.includes('anthropic') || model.includes('fable')) {
         return 'anthropic';
     }
 
@@ -1920,9 +1980,10 @@ function buildPlaceholderRegex(placeholderBody) {
     if (m) {
         const userRegex = sanitizeUserRegex(m[2]);
         if (userRegex) {
-            // Anthropic/OpenRouter rejects some regex features (notably `\S` and some range quantifiers).
-            // If the user-provided regex looks risky, fall back to a permissive wildcard.
-            if (runtimeState.patternMode === 'anthropic' && (/[{}]/.test(userRegex) || /\\S/.test(userRegex))) {
+            // Anthropic rejects regex features like lookarounds, \b, \S, and complex range quantifiers.
+            // If the user-provided regex looks risky for Anthropic, fall back to a permissive wildcard.
+            if (runtimeState.patternMode === 'anthropic' && !isRegexSafeForAnthropic(userRegex)) {
+                console.warn(`[${extensionName}] User regex contains features unsupported by Claude API (lookarounds, word boundaries, \\S, or complex ranges); falling back to wildcard.`);
                 return `${anyCharIncludingNewlineExpr()}*`;
             }
             return `(?:${userRegex})`;
@@ -3166,8 +3227,17 @@ async function onChatCompletionSettingsReady(generateData) {
     }
 
     const minCharsSetting = clampInt(settings.min_chars_after_prefix, 1, 10000, 80);
-    const minCharsAfterPrefix = isContinue ? 1 : (mustEndAfterTemplate ? 0 : minCharsSetting);
     generateData.json_schema = buildJsonSchemaForPrefillValuePattern(schemaPrefix, minCharsAfterPrefix, joinSuffixRegex, { mustEndAfterTemplate });
+
+    // For Claude (direct or routed), also attach native output_config format
+    if (runtimeState.patternMode === 'anthropic' || src === 'claude' || src === 'anthropic') {
+        generateData.output_config = {
+            format: {
+                type: 'json_schema',
+                schema: generateData.json_schema.value,
+            },
+        };
+    }
 
     // Debug: log the structured output regex pattern that we inject.
     try {
@@ -3484,7 +3554,12 @@ function setupUiListeners() {
         });
 }
 
-jQuery(async () => {
+let isInitialized = false;
+
+async function init() {
+    if (isInitialized) return;
+    isInitialized = true;
+
     if ($('.structuredprefill_settings').length === 0) {
         $('#extensions_settings').append(await renderExtensionTemplateAsync(extensionPath, 'settings'));
     }
@@ -3506,4 +3581,13 @@ jQuery(async () => {
     eventSource.on(event_types.GENERATION_STOPPED, onGenerationStopped);
 
     console.log(`[${extensionName}] extension loaded`);
+}
+
+export async function onActivate() {
+    await init();
+}
+
+jQuery(async () => {
+    await init();
 });
+

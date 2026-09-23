@@ -266,17 +266,22 @@ Want to use StructuredPrefill outside of sillytavern? Look here: ./proxy/README.
 
 #### COMPATIBILITY
 
-StructuredPrefill only works on providers that support OpenAI-style JSON Schema structured outputs for chat completions. Full list: https://openrouter.ai/models?fmt=cards&supported_parameters=structured_outputs
+StructuredPrefill works on providers that support JSON Schema structured outputs:
+- **Direct Claude / Anthropic** in SillyTavern (using native `output_config.format` structured outputs)
+- **OpenRouter** (OpenAI-style `response_format` routing to Anthropic, OpenAI, etc.)
+- **OpenAI & OpenAI-compatible providers** supporting strict JSON schema with regex `pattern` constraints
+- **StructuredPrefill Proxy** (`./proxy`) for Anthropic, OpenAI, and Google Gemini endpoints
 
-If your provider does not support it, StructuredPrefill does nothing. Your prompt goes through unchanged.
+If your provider does not support structured outputs, StructuredPrefill does nothing. Your prompt goes through unchanged.
 
 ***
 
 #### LIMITATIONS
 
-- **Direct Claude in SillyTavern is broken for this.** Anthropic uses a different request shape (`output_config.format`) and SillyTavern's current chat completions path does not expose a hook extensions can use. Cohee would need to update ST source code. OpenRouter Claude works fine.
+- **Claude Regex Constraints:** Anthropic enforces strict rules on JSON schema regexes through constrained grammar compilation. Lookarounds (`(?=...)`, `(?!...)`), word boundaries (`\b`, `\B`), backreferences (`\1`), shorthand `\S`, and complex `{n,}` ranges are not supported by Claude's compiler. StructuredPrefill automatically validates and sanitizes patterns in Anthropic mode to ensure compatibility.
+- **No Assistant Message Prefill on Claude:** Claude API strictly forbids trailing assistant messages when JSON outputs are active (*"Message Prefilling: Incompatible with JSON outputs"*). StructuredPrefill removes the trailing assistant message and moves it into the schema pattern so Claude is forced to generate it directly.
 - Some "OpenAI-compatible" providers accept `json_schema` but do not enforce regex `pattern` constraints. StructuredPrefill may partially work or be a no-op on those.
 - JSON Schema regex support varies by provider. Keep stub patterns simple.
-- Very large prefills make the schema pattern huge. Some providers reject oversized schemas or get slow.
+- Very large prefills make the schema pattern huge. Some providers reject oversized schemas or compile slowly.
 - Stubs are experimental. Pushing too many constraints or complex patterns can cause unstable model behavior.
 - If generation gets interrupted mid-stream you may briefly see raw JSON depending on provider and ST streaming behavior.

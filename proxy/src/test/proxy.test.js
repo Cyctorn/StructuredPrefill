@@ -904,7 +904,7 @@ test('root config editor serves html and saves config changes', async (t) => {
     assert.match(rawConfig, /anti_slop_ban_list: \|-/);
 });
 
-test('anthropic requests are rewritten into a forced tool call', () => {
+test('anthropic requests are rewritten into native output_config format', () => {
     const targetUrl = new URL('https://api.anthropic.com/v1/messages');
     const body = {
         model: 'claude-sonnet-4-5',
@@ -929,9 +929,8 @@ test('anthropic requests are rewritten into a forced tool call', () => {
     assert.ok(rewritten);
     assert.equal(rewritten.context.provider, 'anthropic-messages');
     assert.equal(rewritten.jsonBody.stream, false);
-    assert.equal(rewritten.jsonBody.tools[0].name, 'response');
-    assert.equal(rewritten.jsonBody.tools[0].description, 'Well-formed JSON object');
-    assert.deepEqual(rewritten.jsonBody.tool_choice, { type: 'tool', name: 'response' });
+    assert.equal(rewritten.jsonBody.output_config?.format?.type, 'json_schema');
+    assert.deepEqual(rewritten.jsonBody.output_config?.format?.schema, rewritten.context.responseSchema);
 });
 
 test('anthropic tool responses are unwrapped back into text blocks', () => {

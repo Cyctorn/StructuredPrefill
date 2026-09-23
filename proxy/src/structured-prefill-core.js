@@ -1914,14 +1914,12 @@ function rewriteAnthropicMessagesRequest(targetUrl, jsonBody, config) {
         }
     }
     rewritten.stream = false;
-    rewritten.tools = [
-        {
-            name: 'response',
-            description: 'Well-formed JSON object',
-            input_schema: context.responseSchema,
+    rewritten.output_config = {
+        format: {
+            type: 'json_schema',
+            schema: context.responseSchema,
         },
-    ];
-    rewritten.tool_choice = { type: 'tool', name: 'response' };
+    };
 
     return { targetUrl, jsonBody: rewritten, context };
 }
